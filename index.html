@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Liquid glass</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #111;
+        font-family: ui-sans-serif, system-ui, sans-serif; }
+      #wrap { position: fixed; inset: 0 300px 0 0; }
+      #bg { position: absolute; inset: 0; background-size: cover; background-position: center; }
+      #stage { position: absolute; inset: 0; }
+      #lensHit { cursor: grab; }
+      #lensHit:active { cursor: grabbing; }
+
+      #panel {
+        position: fixed; top: 0; right: 0; bottom: 0; width: 300px;
+        overflow-y: auto; background: #1c1c1e; color: #e6e6e6;
+        border-left: 1px solid #333; padding: 18px 20px 40px; font-size: 12px; z-index: 20;
+      }
+      #panel h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+        color: #8a8a8e; margin: 22px 0 10px; font-weight: 500; }
+      #panel h2:first-child { margin-top: 0; }
+      .row { display: flex; align-items: center; gap: 10px; margin: 9px 0; }
+      .row label { flex: 1; color: #c7c7cc; }
+      .row input[type=range] { flex: 1.2; accent-color: #0a84ff; }
+      .row .val { width: 46px; text-align: right; font-family: ui-monospace, monospace; color: #fff; }
+      .row select { flex: 1.2; background: #2c2c2e; color: #fff;
+        border: 1px solid #3a3a3c; border-radius: 6px; padding: 5px; }
+      #hint { position: fixed; bottom: 18px; left: calc(50% - 150px); transform: translateX(-50%);
+        background: rgba(0,0,0,.55); color: #fff; padding: 7px 16px; border-radius: 20px;
+        font-size: 12px; z-index: 15; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <div id="wrap">
+      <div id="bg"></div>
+
+      <!--
+        Their structure, not mine. The photo is fed INTO the filter via
+        feImage and the displaced result is masked to the lens shape with
+        feComposite operator="in". That yields a visible object with a real
+        edge. backdrop-filter cannot do this: it filters what is already
+        painted behind, so subtle displacement over a smooth gradient simply
+        disappears - which is exactly what kept happening.
+      -->
+      <svg id="stage" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="lg" filterUnits="userSpaceOnUse" x="0" y="0" width="100" height="100" color-interpolation-filters="sRGB">
+            <feImage id="photo" result="src" preserveAspectRatio="none" x="0" y="0" width="100" height="100" href=""></feImage>
+            <feGaussianBlur id="photoBlur" in="src" stdDeviation="0" result="srcBlur"></feGaussianBlur>
+
+            <feImage id="dispMap" result="dispImg" preserveAspectRatio="none" x="0" y="0" width="100" height="100" href=""></feImage>
+            <feGaussianBlur in="dispImg" stdDeviation="1" result="dispSmooth"></feGaussianBlur>
+
+            <feDisplacementMap id="dR" in="srcBlur" in2="dispSmooth" scale="0" xChannelSelector="R" yChannelSelector="G" result="pR"></feDisplacementMap>
+            <feColorMatrix in="pR" type="matrix" result="mR" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0"></feColorMatrix>
+            <feDisplacementMap id="dG" in="srcBlur" in2="dispSmooth" scale="0" xChannelSelector="R" yChannelSelector="G" result="pG"></feDisplacementMap>
+            <feColorMatrix in="pG" type="matrix" result="mG" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0"></feColorMatrix>
+            <feDisplacementMap id="dB" in="srcBlur" in2="dispSmooth" scale="0" xChannelSelector="R" yChannelSelector="G" result="pB"></feDisplacementMap>
+            <feColorMatrix in="pB" type="matrix" result="mB" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0"></feColorMatrix>
+            <feComposite in="mR" in2="mG" operator="arithmetic" k2="1" k3="1" result="mRG"></feComposite>
+            <feComposite in="mRG" in2="mB" operator="arithmetic" k2="1" k3="1" result="displaced"></feComposite>
+
+            <feColorMatrix id="satNode" in="displaced" type="saturate" values="1" result="sat"></feColorMatrix>
+
+            <feImage id="specMap" result="specImg" preserveAspectRatio="none" x="0" y="0" width="100" height="100" href=""></feImage>
+            <feComponentTransfer in="specImg" result="specFaded">
+              <feFuncA id="specA" type="linear" slope="0.8"></feFuncA>
+            </feComponentTransfer>
+            <feBlend in="specFaded" in2="sat" mode="normal" result="glass"></feBlend>
+
+            <!-- Clip to the lens shape: SourceGraphic is the rect below. -->
+            <feComposite in="glass" in2="SourceGraphic" operator="in"></feComposite>
+          </filter>
+        </defs>
+
+        <rect id="lensHit" filter="url(#lg)" x="0" y="0" width="100" height="100" rx="50" fill="#000"></rect>
+      </svg>
+    </div>
+
+    <div id="hint">drag the lens</div>
+
+    <div id="panel">
+      <h2>Shape</h2>
+      <div class="row"><label>Shape</label><select id="cShape">
+        <option value="circle" selected>Circle</option>
+        <option value="lozenge">Lozenge</option>
+        <option value="rect">Rounded rect</option>
+      </select></div>
+      <div class="row"><label>Size</label><input id="cSize" type="range" min="120" max="820" value="480"><span class="val" id="vSize">480</span></div>
+
+      <h2>Surface</h2>
+      <div class="row"><label>Profile</label><select id="cSurface">
+        <option value="convexSquircle" selected>Convex squircle</option>
+        <option value="convexCircle">Convex circle</option>
+        <option value="concaveCircle">Concave circle</option>
+        <option value="lip">Lip</option>
+      </select></div>
+
+      <h2>Geometry</h2>
+      <div class="row"><label>Bezel width</label><input id="cBezel" type="range" min="4" max="200" value="60"><span class="val" id="vBezel">60</span></div>
+      <div class="row"><label>Glass thickness</label><input id="cThick" type="range" min="2" max="240" value="50"><span class="val" id="vThick">50</span></div>
+      <div class="row"><label>Refractive index</label><input id="cIor" type="range" min="105" max="280" value="150"><span class="val" id="vIor">1.50</span></div>
+      <div class="row"><label>Refraction level</label><input id="cLevel" type="range" min="0" max="300" value="100"><span class="val" id="vLevel">1.00</span></div>
+
+      <h2>Optics</h2>
+      <div class="row"><label>Blur</label><input id="cBlur" type="range" min="0" max="40" value="2"><span class="val" id="vBlur">0.2</span></div>
+      <div class="row"><label>Chromatic</label><input id="cChroma" type="range" min="0" max="60" value="20"><span class="val" id="vChroma">0.20</span></div>
+      <div class="row"><label>Saturation</label><input id="cSat" type="range" min="100" max="700" value="100"><span class="val" id="vSat">1.0</span></div>
+
+      <h2>Specular highlight</h2>
+      <div class="row"><label>Opacity</label><input id="cSpec" type="range" min="0" max="100" value="80"><span class="val" id="vSpec">0.80</span></div>
+
+      <h2>Background</h2>
+      <div class="row"><label>Image</label><select id="cBg">
+        <option value="banner" selected>Reference banner</option>
+        <option value="work">Your photo</option>
+        <option value="stripes">Stripes</option>
+      </select></div>
+
+      <h2>Readout</h2>
+      <pre id="out" style="margin:0;font-size:11px;color:#8a8a8e;line-height:1.6"></pre>
+    </div>
+
+    <!-- Their generator, unmodified. -->
+    <script src="./demo-utils.js"></script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const wrap = $("wrap"), bgEl = $("bg"), stage = $("stage");
+      const photo = $("photo"), dispMap = $("dispMap"), specMap = $("specMap");
+      const filt = $("lg"), lens = $("lensHit");
+      const dR = $("dR"), dG = $("dG"), dB = $("dB");
+      const satNode = $("satNode"), specA = $("specA"), photoBlur = $("photoBlur");
+
+      const BG = {
+        banner: "./banner.jpeg",
+        work: "https://framerusercontent.com/images/AAGnFus9vmZEQDbHY74sJFdEzXE.jpg",
+        stripes: "",
+      };
+
+      let cx = 0, cy = 0, inited = false;
+
+      function build() {
+        const W = wrap.clientWidth, H = wrap.clientHeight;
+        if (!inited) { cx = W / 2; cy = H / 2; inited = true; }
+
+        stage.setAttribute("width", W);
+        stage.setAttribute("height", H);
+        stage.setAttribute("viewBox", "0 0 " + W + " " + H);
+
+        const size = +$("cSize").value;
+        const shape = $("cShape").value;
+        const w = size;
+        const h = shape === "circle" ? size : Math.round(size * 0.52);
+        const radius = shape === "rect" ? Math.min(40, h / 2) : Math.min(w, h) / 2;
+
+        const bezel = +$("cBezel").value;
+        const thick = +$("cThick").value;
+        const ior = +$("cIor").value / 100;
+        const level = +$("cLevel").value / 100;
+        const blur = +$("cBlur").value / 10;
+        const chroma = +$("cChroma").value / 100;
+        const sat = +$("cSat").value / 100;
+        const spec = +$("cSpec").value / 100;
+
+        $("vSize").textContent = size;
+        $("vBezel").textContent = bezel;
+        $("vThick").textContent = thick;
+        $("vIor").textContent = ior.toFixed(2);
+        $("vLevel").textContent = level.toFixed(2);
+        $("vBlur").textContent = blur.toFixed(1);
+        $("vChroma").textContent = chroma.toFixed(2);
+        $("vSat").textContent = sat.toFixed(1);
+        $("vSpec").textContent = spec.toFixed(2);
+
+        const x = Math.round(cx - w / 2), y = Math.round(cy - h / 2);
+
+        lens.setAttribute("x", x); lens.setAttribute("y", y);
+        lens.setAttribute("width", w); lens.setAttribute("height", h);
+        lens.setAttribute("rx", radius);
+
+        // Filter region and every feImage subregion are in user space and must
+        // track the lens box, or the maps land somewhere else entirely.
+        filt.setAttribute("x", x); filt.setAttribute("y", y);
+        filt.setAttribute("width", w); filt.setAttribute("height", h);
+        [photo, dispMap, specMap].forEach((n) => {
+          n.setAttribute("y", y); n.setAttribute("height", h);
+        });
+        // The photo is the full-bleed background, so it spans the stage and is
+        // offset by the lens position - that is what makes the glass show the
+        // scene continuing behind it rather than a stretched copy.
+        photo.setAttribute("x", 0);
+        photo.setAttribute("width", W);
+        photo.setAttribute("y", 0);
+        photo.setAttribute("height", H);
+        [dispMap, specMap].forEach((n) => {
+          n.setAttribute("x", x); n.setAttribute("width", w);
+        });
+
+        const maps = DemoUtils.generateGlassMaps({
+          surface: DemoUtils.surfaces[$("cSurface").value],
+          refractiveIndex: ior,
+          bezelWidth: bezel,
+          glassThickness: thick,
+          width: w, height: h, radius,
+          samples: 128,
+        });
+
+        dispMap.setAttribute("href", maps.displacement.url);
+        specMap.setAttribute("href", maps.specularUrl);
+
+        const scale = maps.displacement.maxDisplacement * level;
+        [1 - chroma, 1, 1 + chroma].forEach((k, i) =>
+          [dR, dG, dB][i].setAttribute("scale", (scale * k).toFixed(2)));
+        satNode.setAttribute("values", String(sat));
+        specA.setAttribute("slope", String(spec));
+        photoBlur.setAttribute("stdDeviation", String(blur));
+
+        $("out").textContent =
+          "lens      " + w + " x " + h +
+          "\nat        " + x + ", " + y +
+          "\nmax disp  " + maps.displacement.maxDisplacement.toFixed(1) +
+          "\nscale     " + scale.toFixed(1);
+      }
+
+      ["cShape","cSize","cSurface","cBezel","cThick","cIor","cLevel","cBlur","cChroma","cSat","cSpec"]
+        .forEach((id) => $(id).addEventListener("input", build));
+
+      function setBg() {
+        const k = $("cBg").value;
+        if (k === "stripes") {
+          bgEl.style.background = "repeating-linear-gradient(to right,#111 0 16px,#fff 16px 32px)";
+          // feImage needs a real URL, so bake the stripes into one.
+          const c = document.createElement("canvas");
+          c.width = 32; c.height = 1;
+          const g = c.getContext("2d");
+          g.fillStyle = "#111"; g.fillRect(0, 0, 16, 1);
+          g.fillStyle = "#fff"; g.fillRect(16, 0, 16, 1);
+          photo.setAttribute("href", c.toDataURL());
+          photo.setAttribute("preserveAspectRatio", "none");
+        } else {
+          bgEl.style.background = "url(" + BG[k] + ") center / cover";
+          photo.setAttribute("href", BG[k]);
+          photo.setAttribute("preserveAspectRatio", "xMidYMid slice");
+        }
+        build();
+      }
+      $("cBg").addEventListener("change", setBg);
+
+      let down = false, ox = 0, oy = 0;
+      lens.addEventListener("pointerdown", (e) => {
+        down = true; ox = e.clientX - cx; oy = e.clientY - cy;
+        lens.setPointerCapture(e.pointerId);
+      });
+      lens.addEventListener("pointermove", (e) => {
+        if (!down) return;
+        cx = e.clientX - ox; cy = e.clientY - oy;
+        build();
+      });
+      lens.addEventListener("pointerup", () => (down = false));
+      window.addEventListener("resize", build);
+
+      setBg();
+    </script>
+  </body>
+</html>
